@@ -26,7 +26,18 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+
+#include <Adafruit_GPS.h>
+
 BME280I2C bme; 
+
+
+
+HardwareSerial Serial2(2); // pin 16=RX, pin 17=TX
+
+Adafruit_GPS GPS(&Serial2);
+
+#define GPSECHO  true
 
 
 
@@ -88,21 +99,17 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 };
 
 void setup() {
+  
   Serial.begin(115200);
-
   pinMode(LED, OUTPUT);
 
-  // Create the BLE Device
-  BLEDevice::init("ESP32 TIMISOARA 2"); // Give it a name
+  BLEDevice::init("ESP32 TIMISOARA 2");
 
-  // Create the BLE Server
   BLEServer *pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
 
-  // Create the BLE Service
   BLEService *pService = pServer->createService(SERVICE_UUID);
 
-  // Create a BLE Characteristic
   pCharacteristic = pService->createCharacteristic(
                       CHARACTERISTIC_UUID_TX,
                       BLECharacteristic::PROPERTY_NOTIFY
@@ -116,14 +123,11 @@ void setup() {
                                        );
 
   pCharacteristic->setCallbacks(new MyCallbacks());
-
-  // Start the service
+  
   pService->start();
 
-  // Start advertising
   pServer->getAdvertising()->start();
   Serial.println("Waiting a client connection to notify...");
-
 
   while(!Serial) {} // Wait
 
@@ -147,12 +151,43 @@ void setup() {
      default:
        Serial.println("Found UNKNOWN sensor! Error!");
   }
-  
+
+  GPS.begin(9600);
+  GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);  
+  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);   // 1 Hz update rate
+  GPS.sendCommand(PGCMD_ANTENNA);
+  delay(1000);
 
 }
 
+uint32_t timer = millis();
+uint32_t lastSendBT = millis();
+
 void loop() {
-  if (deviceConnected) {
+
+  char c = GPS.read();
+  delay(1);
+  if (GPS.newNMEAreceived()) {
+    if (!GPS.parse(GPS.lastNMEA()))   // this also sets the newNMEAreceived() flag to false
+      return;  // we can fail to parse a sentence in which case we should just wait for another
+  }
+  
+  if (timer > millis())  timer = millis();
+
+  if (millis() - timer > 2000) { 
+    timer = millis(); // reset the timer
+    
+    
+    Serial.print("Fix: "); Serial.println((int)GPS.fix);
+ 
+    
+  }
+
+  
+  
+  if (deviceConnected && millis()-lastSendBT > 1000) {
+
+    lastSendBT = millis();
     float temperature,humidity,presure,newpresure;
    float temp(NAN), hum(NAN), pres(NAN);
 
@@ -161,84 +196,37 @@ void loop() {
 
    bme.read(pres, temp, hum, tempUnit, presUnit);
 
+
+   if (GPS.fix) {
+      
+      Serial.print("Location (in degrees, works with Google Maps): ");
+      Serial.print(GPS.latitudeDegrees, 4);
+      Serial.print(", "); 
+      Serial.println(GPS.longitudeDegrees, 4);
+      Serial.print("Altitude: "); Serial.println(GPS.altitude);
+
+    
+
+
  
-   temperature = temp;
-   humidity = hum;
-   presure= pres;
+     temperature = temp;
+     humidity = hum;
+     presure= pres;
 
-
-
-
-
-  // return temp;
-  //  txValue = temperature; // This could be an actual sensor reading!
-   // txValue1 = humidity;
-   // txValue2 = pres;
     
-    // Let's convert the value to a char array:
-    char txString[2],txString1[2],txString2[2]; // make sure this is big enuffz
-    dtostrf(temperature, 1, 2, txString); // float_val, min_width, digits_after_decimal, char_buffer
-    dtostrf(humidity, 1, 2, txString1);
-    dtostrf(presure, 1, 2, txString2);
-    newpresure=presure*750/100000;
+     newpresure=presure*750/100000;
     
-char sendBuffer[128];
-sprintf(sendBuffer,"%d,%d,%d",int(temperature),int(humidity),int(newpresure));
-//sprintf(sendBuffer,"T:%d°C\nH:%d%%\nP:%dPa dddd\n",int(temperature),int(humidity),int(presure/100));
-//Serial.println(sendBuffer);
-//bleSerial.print(sendBuffer);
-//    pCharacteristic->setValue(&txValue, 1); // To send the integer value
-//    pCharacteristic->setValue("Hello!"); // Sending a test message
+     char sendBuffer[16];
+    sprintf(sendBuffer,"%d,%d,%d",int(GPS.latitudeDegrees),int(GPS.longitudeDegrees),int(GPS.altitude));
+
     pCharacteristic->setValue(sendBuffer);
-    //pCharacteristic->setValues(txString1);
+    
     
     pCharacteristic->notify(); // Send the value to the app!
-    Serial.print("*** Sent Value: ");
-    Serial.print(txString);
-    Serial.print(txString1);
-    Serial.print(txString2);
-    Serial.println(" ***");
-
-    // You can add the rxValue checks down here instead
-    // if you set "rxValue" as a global var at the top!
-    // Note you will have to delete "std::string" declaration
-    // of "rxValue" in the callback function.
-//    if (rxValue.find("A") != -1) { 
-//      Serial.println("Turning ON!");
-//      digitalWrite(LED, HIGH);
-//    }
-//    else if (rxValue.find("B") != -1) {
-//      Serial.println("Turning OFF!");
-//      digitalWrite(LED, LOW);
-//    }
+    
+   }
   }
-  delay(1000);
+  
 }
 
-/*
-void printBME280Data
-(
-   Stream* client
-)
-{
-   float temp(NAN), hum(NAN), pres(NAN);
 
-   BME280::TempUnit tempUnit(BME280::TempUnit_Celsius);
-   BME280::PresUnit presUnit(BME280::PresUnit_Pa);
-
-   bme.read(pres, temp, hum, tempUnit, presUnit);
-
-   client->print("Temp: ");
-   client->print(temp);
-   client->print("°"+ String(tempUnit == BME280::TempUnit_Celsius ? 'C' :'F'));
-   client->print("\t\tHumidity: ");
-   client->print(hum);
-   client->print("% RH");
-   client->print("\t\tPressure: ");
-   client->print(pres);
-   client->println(" Pa");
-
-   delay(1000);
-  // return temp;
-}
-*/
