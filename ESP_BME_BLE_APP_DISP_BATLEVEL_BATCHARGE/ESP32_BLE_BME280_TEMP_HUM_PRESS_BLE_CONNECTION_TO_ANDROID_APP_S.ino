@@ -27,6 +27,8 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 BME280I2C bme; 
+#define BatteryLevel 34
+#define BatteryChargeLevel 35
 
 HardwareSerial Serial2(2); // pin 16=RX, pin 17=TX
 
@@ -150,8 +152,12 @@ void setup() {
        Serial.println("Found UNKNOWN sensor! Error!");
   }
   
-
+Serial.println("Start");
 }
+
+
+float batteryLevel;
+float chargeLevel;
 
 void loop() {
       float temperature,humidity,presure,newpresure;
@@ -168,12 +174,26 @@ void loop() {
    presure= pres;
    newpresure=presure*750/100000;
 
-Serial2.print("T"); Serial2.print(int(temperature));
-delay(50);
-Serial2.print("H"); Serial2.print(int(humidity));
-delay(50);
-Serial2.print("P"); Serial2.print(int(newpresure));
-   
+    chargeLevel = (3.3 * analogRead(BatteryChargeLevel) / 4096) * 99 / 2.17;
+    batteryLevel = (3.3 * analogRead(BatteryLevel) / 4096) * 99 / 1.4;
+
+    if(chargeLevel > 99) chargeLevel = 99;
+    if(batteryLevel > 99) batteryLevel = 99;
+    
+       Serial.println(int(batteryLevel));
+       Serial.println(int(chargeLevel));
+
+    Serial2.print("B"); Serial2.print(int(batteryLevel));
+    delay(50);
+    Serial2.print("C"); Serial2.print(int(chargeLevel));
+    delay(50);
+    Serial2.print("T"); Serial2.print(int(temperature));
+    delay(50);
+    Serial2.print("H"); Serial2.print(int(humidity));
+    delay(50);
+    Serial2.print("P"); Serial2.print(int(newpresure));
+
+       
   if (deviceConnected) {
   // return temp;
   //  txValue = temperature; // This could be an actual sensor reading!
